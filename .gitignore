@@ -86,3 +86,5 @@ crashlytics-build.properties
 # But keep the demo packages themselves. (这个是Odin生成的文件)
 !/Assets/Plugins/Sirenix/Demos/*.unitypackage 
 
+
+.DS_Store
