@@ -33,6 +33,9 @@
 ExportedObj/
 .consulo/
 *.csproj
+!Tools/GbHeadless/GbHeadless.csproj
+Tools/GbHeadless/bin/
+Tools/GbHeadless/obj/
 *.unityproj
 *.sln
 *.suo

@@ -447,7 +447,7 @@ MonoBehaviour:
   m_MinValue: 0
   m_MaxValue: 1
   m_WholeNumbers: 0
-  m_Value: 0
+  m_Value: 1
   m_OnValueChanged:
     m_PersistentCalls:
       m_Calls: []
@@ -1857,7 +1857,7 @@ MonoBehaviour:
   programCounter: 0
   StepMode: 0
   StepNext: 0
-  isLog: 1
+  isLog: 0
   isOutput: 0
 --- !u!4 &1820608263
 Transform:

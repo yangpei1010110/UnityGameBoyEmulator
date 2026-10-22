@@ -167,41 +167,11 @@ namespace GameBoy.Emulators.Common.Opcodes
 
         public static void StepByExecutor(Cpu cpu, HashSet<byte> opcodes = null)
         {
+            Joypad.JoypadTick(cpu);
+            Sm83.Step(cpu);
             if (opcodes != null)
             {
                 opcodes.Add(cpu.Reg.IR);
-            }
-
-            Joypad.JoypadTick(cpu);
-            Cpu.TimerTick(cpu);
-            // Ppu.PpuTick(cpu);
-            if (!cpu.Halted)
-            {
-                if (cpu._ime && cpu._intFlags != 0 && cpu._intEnableFlags != 0)
-                {
-                    ServiceInterrupt(cpu);
-                }
-                else
-                {
-                    Executor.Execute(cpu);
-                }
-            }
-            else
-            {
-                cpu.ClockCounter += 4;
-                if (cpu._intFlags != 0 && cpu._intEnableFlags != 0)
-                {
-                    cpu.Halted = false;
-                }
-            }
-
-            if (cpu._imeCountdown != 0)
-            {
-                cpu._imeCountdown -= 1;
-                if (cpu._imeCountdown == 0)
-                {
-                    cpu._ime = true;
-                }
             }
         }
 
@@ -255,11 +225,26 @@ namespace GameBoy.Emulators.Common.Opcodes
 
         public static void Step(Cpu cpu, double deltaTime, HashSet<byte> opcodes = null)
         {
-            deltaTime = Math.Clamp(deltaTime, 0, 0.125);
-            int cycles = (int)(Cpu.CLOCK_SPEED * deltaTime);
-            for (int i = 0; i < cycles; i++)
+            if (deltaTime < 0)
             {
-                StepByExecutor(cpu, opcodes);
+                deltaTime = 0;
+            }
+            else if (deltaTime > 1.0 / 30.0)
+            {
+                deltaTime = 1.0 / 30.0;
+            }
+
+            int budget = (int)(Cpu.CLOCK_SPEED * deltaTime);
+            int ran = 0;
+            while (ran < budget)
+            {
+                Joypad.JoypadTick(cpu);
+                ran += Sm83.Step(cpu);
+            }
+
+            if (opcodes != null)
+            {
+                opcodes.Add(cpu.Reg.IR);
             }
         }
 

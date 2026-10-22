@@ -78,7 +78,6 @@ namespace GameBoy.Emulators.Debugs
                 sb.AppendLine($"IE:{reg.IE:X2}");
 
                 _cpuInfo.SetText(sb);
-                Debug.Log($"PC:{Op.Read(_Emulator.cpu, reg.PC):X2}");
             }
         }
 

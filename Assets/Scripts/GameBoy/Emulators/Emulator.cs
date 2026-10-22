@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using GameBoy.Emulators.Common;
+using GameBoy.Emulators.Common.Cpus;
 using GameBoy.Emulators.Common.Opcodes;
 using MyUtils;
 using UnityEngine;
@@ -57,7 +58,10 @@ namespace GameBoy.Emulators
         
         public  LinkedList<string> log = new();
         [SerializeField]
-        public bool isLog = true;
+        public bool isLog = false;
+        Texture2D _lcdTexture;
+        AudioSource _audio;
+        string _romPath;
         [SerializeField]
         public bool isOutput = false;
 
@@ -65,7 +69,8 @@ namespace GameBoy.Emulators
         {
             base.Awake();
             DebugOpcode = new HashSet<byte>();
-            romData = File.ReadAllBytes(Path.GetFullPath(TEST_ROM_PATH4));
+            _romPath = Path.GetFullPath(TEST_ROM_PATH4);
+            romData = File.ReadAllBytes(_romPath);
             if (!Valid.CheckSum(romData, out string err))
             {
                 Debug.LogError(err);
@@ -73,8 +78,10 @@ namespace GameBoy.Emulators
             }
 
             cpu.ProgramCounter = 0x100;
-            cpu.RomData = romData;
+            cpu.Mount(romData, _romPath);
             isException = false;
+            EnsureScreen();
+            EnsureAudio();
 
             Debug.Log(new Info(File.ReadAllBytes(Path.GetFullPath(TEST_ROM_PATH1))).ToString());
             Debug.Log(new Info(File.ReadAllBytes(Path.GetFullPath(TEST_ROM_PATH2))).ToString());
@@ -96,10 +103,12 @@ namespace GameBoy.Emulators
             }
             
             DebugOpcode = new HashSet<byte>();
+            cpu.Cart?.Save();
             romData = data;
+            _romPath = Path.GetFullPath(fullPath);
             cpu = new Cpu();
             cpu.ProgramCounter = 0x100;
-            cpu.RomData = romData;
+            cpu.Mount(romData, _romPath);
             isException = false;
             StepMode = false;
             StepNext = false;
@@ -108,8 +117,115 @@ namespace GameBoy.Emulators
 
         public HashSet<byte> DebugOpcode = new();
 
+        void PollInput()
+        {
+            if (cpu?.Joypad == null)
+            {
+                return;
+            }
+
+            Joypad pad = cpu.Joypad;
+            pad.right = Input.GetKey(KeyCode.RightArrow);
+            pad.left = Input.GetKey(KeyCode.LeftArrow);
+            pad.up = Input.GetKey(KeyCode.UpArrow);
+            pad.down = Input.GetKey(KeyCode.DownArrow);
+            pad.a = Input.GetKey(KeyCode.X) || Input.GetKey(KeyCode.S);
+            pad.b = Input.GetKey(KeyCode.Z) || Input.GetKey(KeyCode.A);
+            pad.start = Input.GetKey(KeyCode.Return);
+            pad.select = Input.GetKey(KeyCode.Backspace) || Input.GetKey(KeyCode.RightShift);
+        }
+
+        void EnsureScreen()
+        {
+            if (_lcdTexture != null)
+            {
+                return;
+            }
+
+            _lcdTexture = new Texture2D(Ppu.SCREEN_WIDTH, Ppu.SCREEN_HEIGHT, TextureFormat.RGBA32, false);
+            _lcdTexture.filterMode = FilterMode.Point;
+            _lcdTexture.wrapMode = TextureWrapMode.Clamp;
+            var sprite = Sprite.Create(_lcdTexture, new Rect(0, 0, Ppu.SCREEN_WIDTH, Ppu.SCREEN_HEIGHT), new Vector2(0.5f, 0.5f), 16f);
+            var lcd = new GameObject("LCD");
+            lcd.transform.position = Vector3.zero;
+            var renderer = lcd.AddComponent<SpriteRenderer>();
+            renderer.sprite = sprite;
+            renderer.sortingOrder = 10;
+            Camera cam = Camera.main;
+            if (cam != null)
+            {
+                cam.orthographic = true;
+                cam.orthographicSize = 5f;
+                cam.transform.position = new Vector3(0, 0, -10);
+                cam.backgroundColor = Color.black;
+            }
+        }
+
+        void Present()
+        {
+            if (_lcdTexture == null || cpu?.Ppu == null)
+            {
+                return;
+            }
+
+            byte[] frame = cpu.Ppu.Framebuffer;
+            Color32[] pixels = _lcdTexture.GetPixels32();
+            int width = Ppu.SCREEN_WIDTH;
+            int height = Ppu.SCREEN_HEIGHT;
+            for (int y = 0; y < height; y++)
+            {
+                int srcRow = (height - 1 - y) * width;
+                int dstRow = y * width;
+                for (int x = 0; x < width; x++)
+                {
+                    int src = (srcRow + x) * 4;
+                    pixels[dstRow + x] = new Color32(frame[src], frame[src + 1], frame[src + 2], 255);
+                }
+            }
+
+            _lcdTexture.SetPixels32(pixels);
+            _lcdTexture.Apply(false);
+        }
+
+        void EnsureAudio()
+        {
+            _audio = GetComponent<AudioSource>();
+            if (_audio == null)
+            {
+                _audio = gameObject.AddComponent<AudioSource>();
+            }
+
+            _audio.playOnAwake = false;
+            _audio.loop = true;
+            _audio.spatialBlend = 0;
+            if (_audio.clip == null)
+            {
+                int rate = AudioSettings.outputSampleRate;
+                if (rate < 8000)
+                {
+                    rate = 48000;
+                }
+
+                cpu.Apu.OutputRate = rate;
+                _audio.clip = AudioClip.Create("GameBoy", rate, 1, rate, false);
+            }
+
+            if (!_audio.isPlaying)
+            {
+                _audio.Play();
+            }
+        }
+
+        void OnAudioFilterRead(float[] data, int channels)
+        {
+            cpu?.Apu?.Drain(data, channels);
+        }
+
+        void OnApplicationQuit() => cpu?.Cart?.Save();
+
         private void Update()
         {
+            PollInput();
             if (isOutput)
             {
                 isOutput = false;
@@ -129,6 +245,7 @@ namespace GameBoy.Emulators
                         CpuOp.Step(cpu, Time.deltaTime, DebugOpcode);
                         clockCounter = cpu.ClockCounter;
                         programCounter = cpu.ProgramCounter;
+                        Present();
                     }
                     catch (Exception e)
                     {
@@ -177,6 +294,7 @@ namespace GameBoy.Emulators
                             CpuOp.StepByExecutor(cpu, DebugOpcode);
                             clockCounter = cpu.ClockCounter;
                             programCounter = cpu.ProgramCounter;
+                            Present();
                         }
                         catch (Exception e)
                         {

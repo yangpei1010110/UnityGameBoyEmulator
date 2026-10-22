@@ -133,11 +133,9 @@
                 return false;
             }
 
-            if (!GlobalCheckSum(romData, out errorMessage))
-            {
-                return false;
-            }
-
+            // 开机 ROM 不检查全局校验. 很多自制和测试 ROM 这里对不上, 不能因此拒绝启动.
+            GlobalCheckSum(romData, out errorMessage);
+            errorMessage = string.Empty;
             return true;
         }
 

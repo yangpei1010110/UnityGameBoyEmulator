@@ -47,6 +47,8 @@ namespace GameBoy.Emulators.Common
         public byte _intFlags;
 
         public bool Halted;
+        public bool Stopped;
+        public bool HaltBug;
 
         /// <summary>
         ///     CPU Registers
@@ -58,19 +60,22 @@ namespace GameBoy.Emulators.Common
         public ulong ClockCounter
         {
             get => _clockCounter;
-            set
+            set => _clockCounter = value;
+        }
+
+        public void TickCycles(int cycles)
+        {
+            for (int i = 0; i < cycles; i++)
             {
-                ulong tickCycles = value - _clockCounter;
-                for (ulong i = 0; i < tickCycles; i++)
+                _clockCounter++;
+                TimerTick(this);
+                if ((_clockCounter & 511) == 0)
                 {
-                    _clockCounter += 1;
-                    TimerTick(this);
-                    if (_clockCounter % 512 == 0)
-                    {
-                        Serial.Tick(this);
-                    }
-                    Ppu.PpuTick(this);
+                    Serial.Tick(this);
                 }
+
+                Ppu.PpuTick(this);
+                Apu.Tick(this);
             }
         }
         public bool IME
@@ -101,29 +106,7 @@ namespace GameBoy.Emulators.Common
             public byte IR
             {
                 get => _ir;
-                set
-                {
-                    if (Emulator.Instance.isLog)
-                    {
-                        var cpu = Emulator.Instance.cpu;
-                        string v1 = Op.Read(cpu, cpu.ProgramCounter).ToString("X2");
-                        string v2 = Op.Read(cpu, (ushort)(cpu.ProgramCounter + 1)).ToString("X2");
-                        string v3 = Op.Read(cpu, (ushort)(cpu.ProgramCounter + 2)).ToString("X2");
-                        string v4 = cpu.Reg.A.ToString("X2");
-                        string flags =
-                            $"{(cpu.Reg.z ? 'Z' : '-')}{(cpu.Reg.n ? 'N' : '-')}{(cpu.Reg.h ? 'H' : '-')}{(cpu.Reg.c ? 'C' : '-')}";
-                        string v5 = cpu.Reg.BC.ToString("X4");
-                        string v6 = cpu.Reg.DE.ToString("X4");
-                        string v7 = cpu.Reg.HL.ToString("X4");
-                        string v8 = cpu.Reg.PC.ToString("X4");
-                        string v9 = cpu.Reg.SP.ToString("X4");
-                        string v10 = cpu.Reg.IR.ToString("X2");
-                        Emulator.Instance.log.AddLast(
-                            $"{v10} {v1} {v2} {v3} A: {v4} F: {flags} BC: {v5} DE: {v6} HL: {v7} PC: {v8} SP: {v9}");
-                    }
-
-                    _ir = value;
-                }
+                set => _ir = value;
             }
             /// <summary>
             ///     Interrupt Enable
@@ -226,39 +209,47 @@ namespace GameBoy.Emulators.Common
         {
             ushort prevDiv = cpu.div;
             cpu.div += 1;
-            if (TimaEnabled(cpu))
-            {
-                bool timaUpdate = false;
-                switch (ClockSelect(cpu))
-                {
-                    case 0:
-                        timaUpdate = (prevDiv & (1 << 9)) != 0 && (cpu.div & (1 << 9)) == 0;
-                        break;
-                    case 1:
-                        timaUpdate = (prevDiv & (1 << 3)) != 0 && (cpu.div & (1 << 3)) == 0;
-                        break;
-                    case 2:
-                        timaUpdate = (prevDiv & (1 << 5)) != 0 && (cpu.div & (1 << 5)) == 0;
-                        break;
-                    case 3:
-                        timaUpdate = (prevDiv & (1 << 7)) != 0 && (cpu.div & (1 << 7)) == 0;
-                        break;
-                    default:
-                        throw new Exception("Invalid clock select");
-                }
+            TimerEdge(cpu, prevDiv, cpu.div);
+        }
 
-                if (timaUpdate)
-                {
-                    if (cpu.tima == 0xFF)
-                    {
-                        cpu._intFlags |= CpuOp.INT_TIMER;
-                        cpu.tima = cpu.tma;
-                    }
-                    else
-                    {
-                        cpu.tima += 1;
-                    }
-                }
+        public static void ResetDiv(Cpu cpu)
+        {
+            ushort prevDiv = cpu.div;
+            cpu.div = 0;
+            TimerEdge(cpu, prevDiv, 0);
+        }
+
+        static void TimerEdge(Cpu cpu, ushort prevDiv, ushort now)
+        {
+            if (!TimaEnabled(cpu))
+            {
+                return;
+            }
+
+            int bit;
+            switch (ClockSelect(cpu))
+            {
+                case 0: bit = 9; break;
+                case 1: bit = 3; break;
+                case 2: bit = 5; break;
+                default: bit = 7; break;
+            }
+
+            bool wasHigh = (prevDiv & (1 << bit)) != 0;
+            bool nowHigh = (now & (1 << bit)) != 0;
+            if (!wasHigh || nowHigh)
+            {
+                return;
+            }
+
+            if (cpu.tima == 0xFF)
+            {
+                cpu._intFlags |= CpuOp.INT_TIMER;
+                cpu.tima = cpu.tma;
+            }
+            else
+            {
+                cpu.tima += 1;
             }
         }
 
@@ -272,12 +263,17 @@ namespace GameBoy.Emulators.Common
 
         #region CPU Method
 
+        public readonly Apu Apu;
+        public Cartridge Cart;
+
         public Cpu()
         {
             Ram = new Ram();
             Ppu = new Ppu();
             Joypad = new Joypad();
             Serial = new Serial();
+            Apu = new Apu();
+            Cart = new Cartridge(Array.Empty<byte>());
             Init();
         }
 
@@ -294,6 +290,8 @@ namespace GameBoy.Emulators.Common
             ProgramCounter = 0x0100;
             Reg.SP = 0xFFFE;
             Halted = false;
+            Stopped = false;
+            HaltBug = false;
             _ime = false;
             _imeCountdown = 0;
             _intFlags = 0;
@@ -327,10 +325,17 @@ namespace GameBoy.Emulators.Common
         public byte[] RomData
         {
             get => _romData;
-            set
+            set => Mount(value, null);
+        }
+
+        public void Mount(byte[] data, string path)
+        {
+            Cart?.Save();
+            _romData = data ?? Array.Empty<byte>();
+            Cart = new Cartridge(_romData, path);
+            if (_romData.Length >= Ram.MAP_ROM_BANK_0_END + 1)
             {
-                _romData = value;
-                Ram.LoadRom(value);
+                Ram.LoadRom(_romData);
             }
         }
 

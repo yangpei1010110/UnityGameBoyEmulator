@@ -82,13 +82,10 @@ namespace GameBoy.Emulators.Common.Opcodes
 
         public static byte Read(Cpu cpu, int address)
         {
-            if (address < Ram.MAP_ROM_BANK_0)
+            address &= 0xFFFF;
+            if (address <= Ram.MAP_ROM_BANK_1_END)
             {
-                throw new Exception($"Invalid address:{address:X8}");
-            }
-            else if (address <= Ram.MAP_ROM_BANK_1_END)
-            {
-                return cpu.RomData[address];
+                return cpu.Cart.Read(address);
             }
             else if (address <= Ram.MAP_VRAM_END)
             {
@@ -96,7 +93,7 @@ namespace GameBoy.Emulators.Common.Opcodes
             }
             else if (address <= Ram.MAP_EXTERNAL_RAM_END)
             {
-                return cpu.RomData[address - Ram.MAP_EXTERNAL_RAM];
+                return cpu.Cart.Read(address);
             }
             else if (address <= Ram.MAP_WORK_RAM_END)
             {
@@ -115,11 +112,16 @@ namespace GameBoy.Emulators.Common.Opcodes
             }
             else if (address <= Ram.MAP_IO_REGISTERS_END)
             {
+                if (address >= 0xFF10 && address <= 0xFF3F)
+                {
+                    return cpu.Apu.Read(address);
+                }
+
                 switch (address)
                 {
                     case 0xFF00: return cpu.Joypad.p1;
-                    case 0xFF01: return cpu.Serial.sb; // TODO
-                    case 0xFF02: return cpu.Serial.sc; // TODO
+                    case 0xFF01: return cpu.Serial.sb;
+                    case 0xFF02: return cpu.Serial.sc;
                     case 0xFF03: return 0xFF;          // TODO
                     case 0xFF04: return Cpu.ReadDiv(cpu);
                     case 0xFF05: return cpu.tima;
@@ -159,15 +161,12 @@ namespace GameBoy.Emulators.Common.Opcodes
 
         public static void Write(Cpu cpu, int address, byte value)
         {
+            address &= 0xFFFF;
             try
             {
-                if (address < Ram.MAP_ROM_BANK_0)
+                if (address <= Ram.MAP_ROM_BANK_1_END)
                 {
-                    throw new Exception($"Invalid address:{address:X8}");
-                }
-                else if (address <= Ram.MAP_ROM_BANK_1_END)
-                {
-                    cpu.RomData[address] = value;
+                    cpu.Cart.Write(address, value);
                 }
                 else if (address <= Ram.MAP_VRAM_END)
                 {
@@ -175,7 +174,7 @@ namespace GameBoy.Emulators.Common.Opcodes
                 }
                 else if (address <= Ram.MAP_EXTERNAL_RAM_END)
                 {
-                    cpu.RomData[address - Ram.MAP_EXTERNAL_RAM] = value;
+                    cpu.Cart.Write(address, value);
                 }
                 else if (address <= Ram.MAP_WORK_RAM_END)
                 {
@@ -194,11 +193,16 @@ namespace GameBoy.Emulators.Common.Opcodes
                 }
                 else if (address <= Ram.MAP_IO_REGISTERS_END)
                 {
+                    if (address >= 0xFF10 && address <= 0xFF3F)
+                    {
+                        cpu.Apu.Write(address, value);
+                        return;
+                    }
+
                     switch (address)
                     {
                         case 0xFF00:
-                            cpu.Joypad.p1 = (byte)((value & 0x30) | (cpu.Joypad.p1 & 0xCF));
-                            cpu.Joypad.p1 = cpu.Joypad.GetKeyState();
+                            cpu.Joypad.Write(value);
                             return;
                         case 0xFF01:
                             cpu.Serial.sb = value;
@@ -206,10 +210,9 @@ namespace GameBoy.Emulators.Common.Opcodes
                         case 0xFF02:
                             cpu.Serial.sc = (byte)(0x7C | (value & 0x83));
                             return;
-                        case 0xFF03: return; // TODO
+                        case 0xFF03: return;
                         case 0xFF04:
-                            cpu.div = 0;
-                            // cpu.tima = 0;
+                            Cpu.ResetDiv(cpu);
                             return;
                         case 0xFF05:
                             cpu.tima = value;
@@ -224,14 +227,17 @@ namespace GameBoy.Emulators.Common.Opcodes
                             cpu._intFlags = (byte)(value & 0x1F);
                             return;
                         case 0xFF40:
-                            if (cpu.Ppu.Enabled && (value & (1 << 7)) == 0)
-                            {
-                                cpu.Ppu.lcds &= 0x7C;
-                                cpu.Ppu.ly = 0;
-                                cpu.Ppu.lineCycles = 0;
-                            }
-
+                            bool wasOn = cpu.Ppu.Enabled;
+                            bool nowOn = (value & (1 << 7)) != 0;
                             cpu.Ppu.lcdc = value;
+                            if (wasOn && !nowOn)
+                            {
+                                cpu.Ppu.PowerOff();
+                            }
+                            else if (!wasOn && nowOn)
+                            {
+                                cpu.Ppu.PowerOn();
+                            }
 
                             return;
                         case 0xFF41:
@@ -249,6 +255,12 @@ namespace GameBoy.Emulators.Common.Opcodes
                             return;
                         case 0xFF46:
                             cpu.Ppu.dma = value;
+                            int source = value << 8;
+                            for (int i = 0; i < 0xA0; i++)
+                            {
+                                cpu.OAM[i] = Read(cpu, source + i);
+                            }
+
                             return;
                         case 0xFF47:
                             cpu.Ppu.bgp = value;

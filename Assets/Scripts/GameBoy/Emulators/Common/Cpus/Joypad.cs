@@ -1,96 +1,14 @@
-﻿using GameBoy.Emulators.Common.Opcodes;
+using GameBoy.Emulators.Common.Opcodes;
 
 namespace GameBoy.Emulators.Common.Cpus
 {
     public class Joypad
     {
-        #region P1
-
-        public byte p1; // 0xFF00
-
-        #endregion
-
-        public Joypad() => p1 = 0xFF;
-
-        public static void JoypadTick(Cpu cpu)
-        {
-            byte v = cpu.Joypad.GetKeyState();
-            byte p1 = cpu.Joypad.p1;
-            if (((p1 & (1 << 0)) != 0 && (v & (1 << 0)) == 0)
-             || ((p1 & (1 << 1)) != 0 && (v & (1 << 1)) == 0)
-             || ((p1 & (1 << 2)) != 0 && (v & (1 << 2)) == 0)
-             || ((p1 & (1 << 3)) != 0 && (v & (1 << 3)) == 0))
-            {
-                cpu._intFlags |= CpuOp.INT_JOYPAD;
-            }
-
-            cpu.Joypad.p1 = v;
-        }
-
-        public byte GetKeyState()
-        {
-            byte v = 0xFF;
-            if ((p1 & (1 << 4)) == 0)
-            {
-                if (right)
-                {
-                    v = (byte)(v & ~(1 << 0));
-                }
-
-                if (left)
-                {
-                    v = (byte)(v & ~(1 << 1));
-                }
-
-                if (up)
-                {
-                    v = (byte)(v & ~(1 << 2));
-                }
-
-                if (down)
-                {
-                    v = (byte)(v & ~(1 << 3));
-                }
-
-                v = (byte)(v & ~(1 << 4));
-            }
-            else if ((p1 & (1 << 5)) == 0)
-            {
-                if (a)
-                {
-                    v = (byte)(v & ~(1 << 0));
-                }
-
-                if (b)
-                {
-                    v = (byte)(v & ~(1 << 1));
-                }
-
-                if (select)
-                {
-                    v = (byte)(v & ~(1 << 2));
-                }
-
-                if (start)
-                {
-                    v = (byte)(v & ~(1 << 3));
-                }
-
-                v = (byte)(v & ~(1 << 5));
-            }
-
-            return v;
-        }
-
-        #region Menu
+        public byte selectBits = 0x30;
+        byte _lines = 0x0F;
 
         public bool select;
         public bool start;
-
-        #endregion
-
-        #region Control
-
         public bool a;
         public bool b;
         public bool down;
@@ -98,6 +16,78 @@ namespace GameBoy.Emulators.Common.Cpus
         public bool right;
         public bool up;
 
-        #endregion
+        public bool AnyPressed => a || b || start || select || left || right || up || down;
+
+        public byte p1 => Read();
+
+        public byte Read()
+        {
+            byte value = (byte)(0xCF | selectBits);
+            if ((selectBits & 0x10) == 0)
+            {
+                if (right)
+                {
+                    value &= unchecked((byte)~0x01);
+                }
+
+                if (left)
+                {
+                    value &= unchecked((byte)~0x02);
+                }
+
+                if (up)
+                {
+                    value &= unchecked((byte)~0x04);
+                }
+
+                if (down)
+                {
+                    value &= unchecked((byte)~0x08);
+                }
+
+                value &= unchecked((byte)~0x10);
+            }
+
+            if ((selectBits & 0x20) == 0)
+            {
+                if (a)
+                {
+                    value &= unchecked((byte)~0x01);
+                }
+
+                if (b)
+                {
+                    value &= unchecked((byte)~0x02);
+                }
+
+                if (select)
+                {
+                    value &= unchecked((byte)~0x04);
+                }
+
+                if (start)
+                {
+                    value &= unchecked((byte)~0x08);
+                }
+
+                value &= unchecked((byte)~0x20);
+            }
+
+            return value;
+        }
+
+        public void Write(byte value) => selectBits = (byte)(value & 0x30);
+
+        public static void JoypadTick(Cpu cpu)
+        {
+            byte lines = (byte)(cpu.Joypad.Read() & 0x0F);
+            byte falling = (byte)(cpu.Joypad._lines & ~lines);
+            if (falling != 0)
+            {
+                cpu._intFlags |= CpuOp.INT_JOYPAD;
+            }
+
+            cpu.Joypad._lines = lines;
+        }
     }
 }
