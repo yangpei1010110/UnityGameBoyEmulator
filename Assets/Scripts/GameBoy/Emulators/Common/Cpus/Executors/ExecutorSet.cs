@@ -893,7 +893,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.B = cpu.Reg.B;
+            // LD B,B: 自赋值, 空操作
         }
 
         public static void _41(Cpu cpu)
@@ -976,7 +976,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.C = cpu.Reg.C;
+            // LD C,C: 自赋值, 空操作
         }
 
         public static void _4A(Cpu cpu)
@@ -1063,7 +1063,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.D = cpu.Reg.D;
+            // LD D,D: 自赋值, 空操作
         }
 
         public static void _53(Cpu cpu)
@@ -1146,7 +1146,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.E = cpu.Reg.E;
+            // LD E,E: 自赋值, 空操作
         }
 
         public static void _5C(Cpu cpu)
@@ -1233,7 +1233,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.H = cpu.Reg.H;
+            // LD H,H: 自赋值, 空操作
         }
 
         public static void _65(Cpu cpu)
@@ -1316,7 +1316,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.L = cpu.Reg.L;
+            // LD L,L: 自赋值, 空操作
         }
 
         public static void _6E(Cpu cpu)
@@ -1492,7 +1492,7 @@ namespace GameBoy.Emulators.Common.Cpus.Executors
             cpu.ProgramCounter += 1;
             cpu.ClockCounter += 4;
 
-            cpu.Reg.A = cpu.Reg.A;
+            // LD A,A: 自赋值, 空操作
         }
 
         #endregion
